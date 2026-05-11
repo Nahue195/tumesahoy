@@ -1,13 +1,38 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/png" href="/FavIcon.png" />
+    <link rel="apple-touch-icon" href="/FavIcon.png" />
+    <link rel="manifest" href="/manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>tumesahoy</title>
+    <meta name="theme-color" content="#2D6A4F" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="TuMesaHoy" />
+
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Sistema de gestión de reservas para restaurantes. Acepta reservas online, gestiona tu menú y horarios fácilmente." />
+    <meta name="keywords" content="reservas restaurantes, gestión restaurantes, menú digital, sistema de reservas" />
+    <meta name="author" content="TuMesaHoy" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="TuMesaHoy - Sistema de Gestión para Restaurantes" />
+    <meta property="og:description" content="Sistema de gestión de reservas para restaurantes. Acepta reservas online, gestiona tu menú y horarios fácilmente." />
+    <meta property="og:url" content="https://tumesahoy.com" />
+
+    <title>TuMesaHoy - Sistema de Gestión para Restaurantes</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js');
+        });
+      }
+    </script>
   </body>
 </html>

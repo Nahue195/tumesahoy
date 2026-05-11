@@ -25,6 +25,13 @@ function AdminMenuSection({ businessId }) {
     description: "",
     price: "",
   });
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  // Estados para edición
+  const [editingItem, setEditingItem] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editImage, setEditImage] = useState(null);
 
   useEffect(() => {
     if (!businessId) return;
@@ -105,6 +112,34 @@ function AdminMenuSection({ businessId }) {
     }
   }
 
+  async function uploadImage(file) {
+    if (!file) return null;
+
+    setUploading(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `${businessId}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('menu-images')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('menu-images')
+        .getPublicUrl(filePath);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error subiendo imagen:', error);
+      throw error;
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function handleAddItem(e) {
     e.preventDefault();
     if (!newItem.category_id || !newItem.name.trim() || !newItem.price) return;
@@ -113,6 +148,12 @@ function AdminMenuSection({ businessId }) {
     setError("");
 
     try {
+      // Subir imagen si hay una seleccionada
+      let imageUrl = null;
+      if (selectedImage) {
+        imageUrl = await uploadImage(selectedImage);
+      }
+
       const { data: currentItems, error: itemsError } = await supabase
         .from("menu_items")
         .select("sort_order")
@@ -127,10 +168,12 @@ function AdminMenuSection({ businessId }) {
         ) || 0;
 
       const { error: insertError } = await supabase.from("menu_items").insert({
+        business_id: businessId,
         category_id: newItem.category_id,
         name: newItem.name.trim(),
         description: newItem.description.trim() || null,
         price: Number(newItem.price),
+        image_url: imageUrl,
         sort_order: maxSort + 1,
       });
 
@@ -142,6 +185,7 @@ function AdminMenuSection({ businessId }) {
         description: "",
         price: "",
       }));
+      setSelectedImage(null);
       await fetchMenu();
     } catch (err) {
       console.error(err);
@@ -176,46 +220,103 @@ function AdminMenuSection({ businessId }) {
     }
   }
 
+  function handleEditItem(item) {
+    setEditingItem(item);
+    setEditForm({
+      name: item.name,
+      description: item.description || "",
+      price: item.price,
+      category_id: item.category_id,
+    });
+    setEditImage(null);
+  }
+
+  function handleCancelEdit() {
+    setEditingItem(null);
+    setEditForm({});
+    setEditImage(null);
+  }
+
+  async function handleSaveEdit(e) {
+    e.preventDefault();
+    if (!editForm.name.trim() || !editForm.price) return;
+
+    setSaving(true);
+    setError("");
+
+    try {
+      let imageUrl = editingItem.image_url;
+      if (editImage) {
+        imageUrl = await uploadImage(editImage);
+      }
+
+      const { error: updateError } = await supabase
+        .from("menu_items")
+        .update({
+          name: editForm.name.trim(),
+          description: editForm.description.trim() || null,
+          price: Number(editForm.price),
+          category_id: editForm.category_id,
+          image_url: imageUrl,
+        })
+        .eq("id", editingItem.id);
+
+      if (updateError) throw updateError;
+
+      handleCancelEdit();
+      await fetchMenu();
+    } catch (err) {
+      console.error(err);
+      setError("No se pudo actualizar el ítem.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const itemsByCategory = categories.map((cat) => ({
     ...cat,
     items: items.filter((i) => i.category_id === cat.id),
   }));
 
   return (
-    <section className="bg-white border rounded-xl shadow-sm mt-8">
-      <div className="px-4 py-3 border-b flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">Menú del negocio</h2>
-        <span className="text-xs text-slate-500">
-          Lo que cargues acá se ve en la carta pública.
-        </span>
-      </div>
+    <>
+      <section className="bg-gray-800 rounded-2xl shadow-sm border border-gray-700">
+        <div className="px-6 py-4 border-b border-gray-700 bg-gray-900 rounded-t-2xl">
+          <h2 className="text-xl font-bold text-white">Menú del negocio</h2>
+          <p className="text-sm text-gray-400 mt-1">
+            Lo que cargues acá se ve en tu carta pública
+          </p>
+        </div>
 
-      <div className="px-4 py-4 space-y-6">
+        <div className="px-6 py-6 space-y-6">
         {loading ? (
-          <p className="text-sm text-slate-500">Cargando menú...</p>
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-secondary"></div>
+          </div>
         ) : (
           <>
             {error && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-100 px-3 py-2 rounded-md">
-                {error}
-              </p>
+              <div className="bg-red-900/20 border border-red-500/40 rounded-xl px-4 py-3">
+                <p className="text-sm text-red-300 font-medium">⚠️ {error}</p>
+              </div>
             )}
 
             {/* Agregar categoría */}
-            <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/50">
-              <p className="text-sm font-medium text-slate-800 mb-2">
-                Categorías
-              </p>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-2xl">🏷️</span>
+                <h3 className="text-lg font-bold text-white">Categorías</h3>
+              </div>
               {categories.length === 0 && (
-                <p className="text-xs text-slate-500 mb-2">
+                <p className="text-sm text-gray-400 mb-3">
                   Todavía no hay categorías de menú para este negocio.
                 </p>
               )}
-              <div className="flex flex-wrap gap-2 mb-3">
+              <div className="flex flex-wrap gap-2 mb-4">
                 {categories.map((c) => (
                   <span
                     key={c.id}
-                    className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 text-xs px-3 py-1"
+                    className="inline-flex items-center rounded-full bg-gray-700 border border-gray-600 text-gray-200 font-semibold text-sm px-4 py-2 shadow-sm"
                   >
                     {c.name}
                   </span>
@@ -223,63 +324,88 @@ function AdminMenuSection({ businessId }) {
               </div>
               <form
                 onSubmit={handleAddCategory}
-                className="flex flex-col sm:flex-row gap-2 items-start sm:items-center"
+                className="flex flex-col sm:flex-row gap-3"
               >
                 <input
                   type="text"
-                  className="w-full sm:w-72 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/40"
-                  placeholder="Ej: Helados por kilo, Postres..."
+                  className="flex-1 rounded-lg border-2 bg-gray-700 border-gray-600 text-white placeholder-gray-400 px-4 py-3 text-sm focus:border-primary focus:outline-none transition"
+                  placeholder="Ej: Helados por kilo, Postres, Bebidas..."
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
                 />
                 <button
                   type="submit"
                   disabled={saving || !newCategoryName.trim()}
-                  className="inline-flex items-center rounded-md bg-slate-900 text-white text-xs font-medium px-3 py-1.5 hover:bg-slate-800 disabled:opacity-60"
+                  className="px-6 py-3 bg-gradient-to-r from-secondary to-accent text-white rounded-lg font-semibold hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Agregar categoría
+                  ➕ Agregar categoría
                 </button>
               </form>
             </div>
 
             {/* Agregar ítem */}
             {categories.length > 0 && (
-              <div className="border border-slate-200 rounded-lg p-3">
-                <p className="text-sm font-medium text-slate-800 mb-2">
-                  Agregar ítem al menú
-                </p>
+              <div className="bg-gray-900 border border-gray-700 rounded-xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-2xl">➕</span>
+                  <h3 className="text-lg font-bold text-white">Agregar ítem al menú</h3>
+                </div>
                 <form
                   onSubmit={handleAddItem}
-                  className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start"
+                  className="space-y-4"
                 >
-                  <div className="md:col-span-1">
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Categoría
-                    </label>
-                    <select
-                      className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/40"
-                      value={newItem.category_id}
-                      onChange={(e) =>
-                        setNewItem((prev) => ({
-                          ...prev,
-                          category_id: e.target.value,
-                        }))
-                      }
-                    >
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-200 mb-2">
+                        Categoría *
+                      </label>
+                      <select
+                        className="w-full rounded-lg border-2 bg-gray-700 border-gray-600 text-white px-4 py-3 text-sm focus:border-primary focus:outline-none transition"
+                        value={newItem.category_id}
+                        onChange={(e) =>
+                          setNewItem((prev) => ({
+                            ...prev,
+                            category_id: e.target.value,
+                          }))
+                        }
+                      >
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-200 mb-2">
+                        Precio *
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-semibold text-secondary">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          className="w-full rounded-lg border-2 bg-gray-700 border-gray-600 text-white placeholder-gray-400 px-4 py-3 text-sm focus:border-primary focus:outline-none transition"
+                          placeholder="15000"
+                          value={newItem.price}
+                          onChange={(e) =>
+                            setNewItem((prev) => ({
+                              ...prev,
+                              price: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="md:col-span-1">
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Nombre
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-200 mb-2">
+                      Nombre del producto *
                     </label>
                     <input
                       type="text"
-                      className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/40"
+                      className="w-full rounded-lg border-2 bg-gray-700 border-gray-600 text-white placeholder-gray-400 px-4 py-3 text-sm focus:border-primary focus:outline-none transition"
                       placeholder="Ej: 1 kg de helado"
                       value={newItem.name}
                       onChange={(e) =>
@@ -287,13 +413,14 @@ function AdminMenuSection({ businessId }) {
                       }
                     />
                   </div>
-                  <div className="md:col-span-1">
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-200 mb-2">
                       Descripción (opcional)
                     </label>
-                    <input
-                      type="text"
-                      className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/40"
+                    <textarea
+                      rows={2}
+                      className="w-full rounded-lg border-2 bg-gray-700 border-gray-600 text-white placeholder-gray-400 px-4 py-3 text-sm focus:border-primary focus:outline-none transition"
                       placeholder="Ej: Elegí hasta 4 sabores"
                       value={newItem.description}
                       onChange={(e) =>
@@ -304,99 +431,123 @@ function AdminMenuSection({ businessId }) {
                       }
                     />
                   </div>
-                  <div className="md:col-span-1">
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Precio
+
+                  {/* Campo de imagen */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-200 mb-2">
+                      Imagen del producto (opcional)
                     </label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-slate-500">$</span>
-                      <input
-                        type="number"
-                        min="0"
-                        className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/40"
-                        placeholder="15000"
-                        value={newItem.price}
-                        onChange={(e) =>
-                          setNewItem((prev) => ({
-                            ...prev,
-                            price: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={
-                        saving ||
-                        !newItem.category_id ||
-                        !newItem.name.trim() ||
-                        !newItem.price
-                      }
-                      className="mt-2 w-full inline-flex items-center justify-center rounded-md bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 hover:bg-emerald-700 disabled:opacity-60"
-                    >
-                      Agregar ítem
-                    </button>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setSelectedImage(e.target.files[0])}
+                      className="block w-full text-sm text-gray-400
+                        file:mr-4 file:py-3 file:px-6
+                        file:rounded-lg file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-gradient-to-r file:from-secondary/10 file:to-accent/10
+                        file:text-secondary hover:file:from-secondary/20 hover:file:to-accent/20
+                        file:transition file:cursor-pointer"
+                    />
+                    {selectedImage && (
+                      <p className="text-xs text-green-600 mt-2 font-medium">
+                        ✓ {selectedImage.name}
+                      </p>
+                    )}
                   </div>
+
+                  <button
+                    type="submit"
+                    disabled={
+                      saving ||
+                      uploading ||
+                      !newItem.category_id ||
+                      !newItem.name.trim() ||
+                      !newItem.price
+                    }
+                    className="w-full py-4 bg-gradient-to-r from-secondary to-accent text-white rounded-lg font-semibold hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {uploading ? '📤 Subiendo imagen...' : saving ? '💾 Guardando...' : '✨ Agregar ítem al menú'}
+                  </button>
                 </form>
               </div>
             )}
 
             {/* Lista del menú */}
-            <div className="border border-slate-200 rounded-lg p-3">
-              <p className="text-sm font-medium text-slate-800 mb-2">
-                Ítems actuales
-              </p>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-2xl">📋</span>
+                <h3 className="text-lg font-bold text-white">Ítems actuales</h3>
+              </div>
               {itemsByCategory.length === 0 ? (
-                <p className="text-xs text-slate-500">
+                <p className="text-sm text-gray-500 text-center py-8">
                   Todavía no hay ítems cargados.
                 </p>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {itemsByCategory.map((cat) => (
-                    <div key={cat.id} className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-[0.16em]">
+                    <div key={cat.id} className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <h3 className="text-sm font-bold text-secondary uppercase tracking-wider">
                           {cat.name}
                         </h3>
-                        <span className="h-px flex-1 bg-slate-200" />
+                        <div className="h-px flex-1 bg-gradient-to-r from-secondary/30 to-transparent" />
                       </div>
                       {cat.items.length === 0 ? (
-                        <p className="text-xs text-slate-400 ml-1">
+                        <p className="text-sm text-gray-500 ml-1">
                           Sin ítems en esta categoría.
                         </p>
                       ) : (
-                        <ul className="divide-y divide-slate-100 border border-slate-100 rounded-md bg-slate-50/40">
+                        <div className="grid gap-3">
                           {cat.items.map((item) => (
-                            <li
+                            <div
                               key={item.id}
-                              className="px-3 py-2 flex items-center justify-between gap-3"
+                              className="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-gray-500 transition-all"
                             >
-                              <div>
-                                <p className="text-sm font-medium text-slate-800">
-                                  {item.name}
-                                </p>
-                                {item.description && (
-                                  <p className="text-xs text-slate-500">
-                                    {item.description}
-                                  </p>
+                              <div className="flex items-center gap-4">
+                                {item.image_url && (
+                                  <img
+                                    src={item.image_url}
+                                    alt={item.name}
+                                    className="w-20 h-20 object-cover rounded-lg border border-gray-700"
+                                  />
                                 )}
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="text-base font-bold text-white truncate">
+                                    {item.name}
+                                  </h4>
+                                  {item.description && (
+                                    <p className="text-sm text-gray-400 mt-1 line-clamp-2">
+                                      {item.description}
+                                    </p>
+                                  )}
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <span className="text-lg font-bold text-secondary">
+                                      {formatPrice(item.price)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditItem(item)}
+                                    className="px-4 py-2 bg-gradient-to-r from-secondary to-accent text-white rounded-lg text-sm font-semibold hover:shadow-lg transition whitespace-nowrap"
+                                  >
+                                    ✏️ Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() => handleDeleteItem(item.id)}
+                                    className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition disabled:opacity-50 whitespace-nowrap"
+                                  >
+                                    🗑️ Eliminar
+                                  </button>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-3">
-                                <span className="text-sm font-semibold text-emerald-600">
-                                  {formatPrice(item.price)}
-                                </span>
-                                <button
-                                  type="button"
-                                  disabled={saving}
-                                  onClick={() => handleDeleteItem(item.id)}
-                                  className="text-xs text-red-600 hover:text-red-700"
-                                >
-                                  Eliminar
-                                </button>
-                              </div>
-                            </li>
+                            </div>
                           ))}
-                        </ul>
+                        </div>
                       )}
                     </div>
                   ))}
@@ -407,6 +558,158 @@ function AdminMenuSection({ businessId }) {
         )}
       </div>
     </section>
+
+    {/* Modal de edición */}
+    {editingItem && (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={handleCancelEdit}>
+        <div
+          className="bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="sticky top-0 bg-neutral-dark px-6 py-4 flex items-center justify-between rounded-t-2xl">
+            <h3 className="text-xl font-bold text-white">✏️ Editar producto</h3>
+            <button
+              onClick={handleCancelEdit}
+              className="text-white hover:bg-white/20 rounded-lg p-2 transition"
+            >
+              <span className="text-2xl">×</span>
+            </button>
+          </div>
+
+          <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-200 mb-2">
+                  Categoría *
+                </label>
+                <select
+                  className="w-full rounded-lg border-2 bg-gray-700 border-gray-600 text-white px-4 py-3 text-sm focus:border-primary focus:outline-none transition"
+                  value={editForm.category_id}
+                  onChange={(e) =>
+                    setEditForm((prev) => ({
+                      ...prev,
+                      category_id: e.target.value,
+                    }))
+                  }
+                >
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-200 mb-2">
+                  Precio *
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-semibold text-secondary">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-full rounded-lg border-2 bg-gray-700 border-gray-600 text-white placeholder-gray-400 px-4 py-3 text-sm focus:border-primary focus:outline-none transition"
+                    placeholder="15000"
+                    value={editForm.price}
+                    onChange={(e) =>
+                      setEditForm((prev) => ({
+                        ...prev,
+                        price: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-200 mb-2">
+                Nombre del producto *
+              </label>
+              <input
+                type="text"
+                className="w-full rounded-lg border-2 bg-gray-700 border-gray-600 text-white placeholder-gray-400 px-4 py-3 text-sm focus:border-primary focus:outline-none transition"
+                placeholder="Ej: 1 kg de helado"
+                value={editForm.name}
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, name: e.target.value }))
+                }
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-200 mb-2">
+                Descripción (opcional)
+              </label>
+              <textarea
+                rows={2}
+                className="w-full rounded-lg border-2 bg-gray-700 border-gray-600 text-white placeholder-gray-400 px-4 py-3 text-sm focus:border-primary focus:outline-none transition"
+                placeholder="Ej: Elegí hasta 4 sabores"
+                value={editForm.description}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-200 mb-2">
+                Cambiar imagen (opcional)
+              </label>
+              {editingItem.image_url && !editImage && (
+                <div className="mb-3">
+                  <p className="text-xs text-gray-400 mb-2">Imagen actual:</p>
+                  <img
+                    src={editingItem.image_url}
+                    alt={editingItem.name}
+                    className="w-32 h-32 object-cover rounded-lg border border-gray-700"
+                  />
+                </div>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setEditImage(e.target.files[0])}
+                className="block w-full text-sm text-gray-400
+                  file:mr-4 file:py-3 file:px-6
+                  file:rounded-lg file:border-0
+                  file:text-sm file:font-semibold
+                  file:bg-gradient-to-r file:from-secondary/10 file:to-accent/10
+                  file:text-secondary hover:file:from-secondary/20 hover:file:to-accent/20
+                  file:transition file:cursor-pointer"
+              />
+              {editImage && (
+                <p className="text-xs text-green-600 mt-2 font-medium">
+                  ✓ Nueva imagen seleccionada: {editImage.name}
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <button
+                type="submit"
+                disabled={saving || uploading || !editForm.name.trim() || !editForm.price}
+                className="flex-1 py-3 bg-gradient-to-r from-secondary to-accent text-white rounded-lg font-semibold hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {uploading ? '📤 Subiendo imagen...' : saving ? '💾 Guardando...' : '✅ Guardar cambios'}
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                disabled={saving}
+                className="flex-1 py-3 bg-gray-700 text-gray-200 rounded-lg font-semibold hover:bg-gray-600 transition disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
